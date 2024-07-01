@@ -30,13 +30,21 @@ Interface changes
 ::
 
  --- mpv 0.38.0 ---
+    - add `term-size` property
+    - add the `escape-ass` command
+    - add `>` for fixed precision floating-point property expansion
+    - add `--input-comands` option
+    - change `--pulse-latency-hacks` default to `yes`
+    - add `context-menu` command
+    - add `menu-data` property
+    - add `--vo-tct-buffering` option
     - add `begin-vo-dragging` command
     - add `--deinterlace-field-parity` option
     - add `--volume-gain`, `--volume-gain-min`, and `--volume-gain-max` options
     - add `current-gpu-context` property
     - add `--secondary-sub-ass-override` option
     - add `--input-preprocess-wheel` option
-    - remove shared-script-properties (user-data is a replacement)
+    - remove `shared-script-properties` (`user-data` is a replacement)
     - add `--secondary-sub-delay`, decouple secondary subtitles from
       `--sub-delay`
     - add the `--osd-bar-border-size` option
@@ -56,7 +64,11 @@ Interface changes
     - change `--hidpi-window-scale` default to `no`
     - add `insert-next`, `insert-next-play`, `insert-at`, and `insert-at-play`
       actions to `loadfile` and `loadlist` commands
-    - add `index` argument to `loadfile` and `loadlist` commands
+    - add `index` argument to `loadlist` command
+    - add `index` argument to `loadfile` command. This breaks all existing
+      uses of this command which make use of the argument to include the list of
+      options to be set while the file is playing. To address this problem, the
+      third argument now needs to be set to -1 if the fourth argument needs to be used.
     - move the `options` argument of the `loadfile` command from the third
       parameter to the fourth (after `index`)
     - add `--drag-and-drop=insert-next` option

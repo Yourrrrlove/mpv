@@ -56,6 +56,8 @@ typedef struct mp_vo_opts {
     bool keepaspect_window;
     bool hidpi_window_scale;
     bool native_fs;
+    bool native_touch;
+    bool show_in_taskbar;
 
     int64_t WinID;
 
@@ -104,6 +106,7 @@ struct mp_subtitle_opts {
     bool ass_vsfilter_aspect_compat;
     int ass_vsfilter_color_compat;
     bool ass_vsfilter_blur_compat;
+    bool sub_vsfilter_bidi_compat;
     bool use_embedded_fonts;
     char **ass_style_override_list;
     char *ass_styles_file;
@@ -172,6 +175,7 @@ typedef struct MPOpts {
     bool lua_load_stats;
     bool lua_load_console;
     int lua_load_auto_profiles;
+    bool lua_load_select;
 
     bool auto_load_scripts;
 
@@ -185,7 +189,7 @@ typedef struct MPOpts {
     float rgain_preamp;         // Set replaygain pre-amplification
     bool rgain_clip;             // Enable/disable clipping prevention
     float rgain_fallback;
-    int softvol_mute;
+    bool softvol_mute;
     float softvol_max;
     float softvol_gain;
     float softvol_gain_min;
@@ -255,6 +259,7 @@ typedef struct MPOpts {
     char *status_msg;
     char *osd_status_msg;
     char *osd_msg[3];
+    int playlist_entry_name;
     int player_idle_mode;
     char **input_commands;
     bool consolecontrols;
@@ -346,7 +351,6 @@ typedef struct MPOpts {
     struct demux_playlist_opts *demux_playlist;
     struct demux_lavf_opts *demux_lavf;
     struct demux_mkv_opts *demux_mkv;
-    struct demux_cue_opts *demux_cue;
 
     struct demux_opts *demux_opts;
     struct demux_cache_opts *demux_cache_opts;
@@ -384,6 +388,7 @@ typedef struct MPOpts {
     struct vaapi_opts *vaapi_opts;
     struct sws_opts *sws_opts;
     struct zimg_opts *zimg_opts;
+    struct egl_opts *egl_opts;
 
     int cuda_device;
 } MPOpts;

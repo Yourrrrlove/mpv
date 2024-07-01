@@ -183,6 +183,7 @@ struct gl_video {
 
     struct mp_image_params real_image_params;   // configured format
     struct mp_image_params image_params;        // texture format (mind hwdec case)
+    struct mp_image_params target_params;       // target format
     struct ra_imgfmt_desc ra_format;            // texture format
     int plane_count;
 
@@ -346,10 +347,8 @@ static OPT_STRING_VALIDATE_FUNC(validate_error_diffusion_opt);
     {n"-param1", OPT_FLOATDEF(scaler[i].kernel.params[0])},                \
     {n"-param2", OPT_FLOATDEF(scaler[i].kernel.params[1])},                \
     {n"-blur",   OPT_FLOAT(scaler[i].kernel.blur)},                        \
-    {n"-cutoff", OPT_REMOVED("Hard-coded as 0.001")},                      \
     {n"-taper",  OPT_FLOAT(scaler[i].kernel.taper), M_RANGE(0.0, 1.0)},    \
     {n"-wparam", OPT_FLOATDEF(scaler[i].window.params[0])},                \
-    {n"-wblur",  OPT_REMOVED("Just adjust filter radius directly")},       \
     {n"-wtaper", OPT_FLOAT(scaler[i].window.taper), M_RANGE(0.0, 1.0)},    \
     {n"-clamp",  OPT_FLOAT(scaler[i].clamp), M_RANGE(0.0, 1.0)},           \
     {n"-radius", OPT_FLOAT(scaler[i].radius), M_RANGE(0.5, 16.0)},         \
@@ -421,7 +420,6 @@ const struct m_sub_options gl_video_conf = {
         SCALER_OPTS("dscale", SCALER_DSCALE),
         SCALER_OPTS("cscale", SCALER_CSCALE),
         SCALER_OPTS("tscale", SCALER_TSCALE),
-        {"scaler-lut-size", OPT_REMOVED("hard-coded as 8")},
         {"scaler-resizes-only", OPT_BOOL(scaler_resizes_only)},
         {"correct-downscaling", OPT_BOOL(correct_downscaling)},
         {"linear-downscaling", OPT_BOOL(linear_downscaling)},
@@ -472,8 +470,6 @@ const struct m_sub_options gl_video_conf = {
         {"gamut-clipping", OPT_REMOVED("Replaced by --gamut-mapping-mode=desaturate")},
         {"tone-mapping-desaturate", OPT_REMOVED("Replaced by --tone-mapping-mode")},
         {"tone-mapping-desaturate-exponent", OPT_REMOVED("Replaced by --tone-mapping-mode")},
-        {"tone-mapping-crosstalk", OPT_REMOVED("Hard-coded as 0.04")},
-        {"tone-mapping-mode", OPT_REMOVED("no replacement")},
         {0}
     },
     .size = sizeof(struct gl_video_opts),
@@ -964,8 +960,8 @@ static void init_video(struct gl_video *p)
 
 static struct dr_buffer *gl_find_dr_buffer(struct gl_video *p, uint8_t *ptr)
 {
-   for (int i = 0; i < p->num_dr_buffers; i++) {
-       struct dr_buffer *buffer = &p->dr_buffers[i];
+    for (int i = 0; i < p->num_dr_buffers; i++) {
+        struct dr_buffer *buffer = &p->dr_buffers[i];
         uint8_t *bufptr = buffer->buf->data;
         size_t size = buffer->buf->params.size;
         if (ptr >= bufptr && ptr < bufptr + size)
@@ -1091,7 +1087,6 @@ static void pass_info_reset(struct gl_video *p, bool is_redraw)
 
     for (int i = 0; i < VO_PASS_PERF_MAX; i++) {
         p->pass[i].desc.len = 0;
-        p->pass[i].perf = (struct mp_pass_perf){0};
     }
 }
 
@@ -1102,13 +1097,13 @@ static void pass_report_performance(struct gl_video *p)
 
     for (int i = 0; i < VO_PASS_PERF_MAX; i++) {
         struct pass_info *pass = &p->pass[i];
-        if (pass->desc.len) {
-            MP_TRACE(p, "pass '%.*s': last %dus avg %dus peak %dus\n",
-                     BSTR_P(pass->desc),
-                     (int)pass->perf.last/1000,
-                     (int)pass->perf.avg/1000,
-                     (int)pass->perf.peak/1000);
-        }
+        if (!pass->desc.len)
+            break;
+        MP_TRACE(p, "pass '%.*s': last %dus avg %dus peak %dus\n",
+                 BSTR_P(pass->desc),
+                 (int)pass->perf.last/1000,
+                 (int)pass->perf.avg/1000,
+                 (int)pass->perf.peak/1000);
     }
 }
 
@@ -2725,6 +2720,21 @@ static void pass_colormanage(struct gl_video *p, struct pl_color_space src,
 
     // Adapt from src to dst as necessary
     pass_color_map(p->sc, p->use_linear && !osd, src, dst, src_light, dst_light, &tone_map);
+
+    if (!osd) {
+        struct mp_csp_params cparams = MP_CSP_PARAMS_DEFAULTS;
+        mp_csp_equalizer_state_get(p->video_eq, &cparams);
+        if (cparams.levels_out == PL_COLOR_LEVELS_UNKNOWN)
+            cparams.levels_out = PL_COLOR_LEVELS_FULL;
+        p->target_params = (struct mp_image_params){
+            .imgfmt_name = p->fbo_format ? p->fbo_format->name : "unknown",
+            .w = p->texture_w,
+            .h = p->texture_h,
+            .color = dst,
+            .repr = {.sys = PL_COLOR_SYSTEM_RGB, .levels = cparams.levels_out},
+            .rotate = p->image_params.rotate,
+        };
+    }
 
     if (p->use_lut_3d && (flags & RENDER_SCREEN_COLOR)) {
         gl_sc_uniform_texture(p->sc, "lut_3d", p->lut_3d_texture);
@@ -4374,4 +4384,9 @@ void gl_video_load_hwdecs_for_img_fmt(struct gl_video *p, struct mp_hwdec_device
 {
     assert(p->hwdec_ctx.ra_ctx);
     ra_hwdec_ctx_load_fmt(&p->hwdec_ctx, devs, params);
+}
+
+struct mp_image_params *gl_video_get_target_params_ptr(struct gl_video *p)
+{
+    return &p->target_params;
 }

@@ -547,7 +547,7 @@ error:
     return -1;
 }
 
-static MP_THREAD_VOID playthread(void *arg)
+static MP_THREAD_VOID ao_thread(void *arg)
 {
     struct ao *ao = arg;
     struct priv *p = ao->priv;
@@ -564,7 +564,7 @@ static MP_THREAD_VOID playthread(void *arg)
             int64_t ts = mp_time_ns();
             ts += MP_TIME_S_TO_NS(read_samples / (double)(ao->samplerate));
             ts += MP_TIME_S_TO_NS(AudioTrack_getLatency(ao));
-            int samples = ao_read_data_nonblocking(ao, &p->chunk, read_samples, ts);
+            int samples = ao_read_data(ao, &p->chunk, read_samples, ts, NULL, false, false);
             int ret = AudioTrack_write(ao, samples * ao->sstride);
             if (ret >= 0) {
                 p->written_frames += ret / ao->sstride;
@@ -766,7 +766,7 @@ static int init(struct ao *ao)
         goto error;
     }
 
-    if (mp_thread_create(&p->thread, playthread, ao)) {
+    if (mp_thread_create(&p->thread, ao_thread, ao)) {
         MP_ERR(ao, "pthread creation failed\n");
         goto error;
     }

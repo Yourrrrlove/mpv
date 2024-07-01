@@ -10,6 +10,7 @@ gitclone="git clone --depth=1 --recursive --shallow-submodules"
 
 # -posix is Ubuntu's variant with pthreads support
 export CC=$TARGET-gcc-posix
+export AS=$TARGET-gcc-posix
 export CXX=$TARGET-g++-posix
 export AR=$TARGET-ar
 export NM=$TARGET-nm
@@ -22,6 +23,10 @@ export LDFLAGS="-fstack-protector-strong"
 export PKG_CONFIG_SYSROOT_DIR="$prefix_dir"
 export PKG_CONFIG_LIBDIR="$PKG_CONFIG_SYSROOT_DIR/lib/pkgconfig"
 
+if [[ "$TARGET" == "i686-"* ]]; then
+    export WINEPATH="`$CC -print-file-name=`;/usr/$TARGET/lib"
+fi
+
 # autotools(-like)
 commonflags="--disable-static --enable-shared"
 
@@ -31,15 +36,17 @@ fam=x86_64
 cat >"$prefix_dir/crossfile" <<EOF
 [built-in options]
 buildtype = 'release'
-wrap_mode = 'nodownload'
+wrap_mode = 'nofallback'
 [binaries]
 c = ['ccache', '${CC}']
 cpp = ['ccache', '${CXX}']
 ar = '${AR}'
 strip = '${TARGET}-strip'
 pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 windres = '${TARGET}-windres'
 dlltool = '${TARGET}-dlltool'
+exe_wrapper = '${WINE}'
 [host_machine]
 system = 'windows'
 cpu_family = '${fam}'
@@ -50,9 +57,12 @@ EOF
 # CMake
 cmake_args=(
     -Wno-dev
+    -GNinja
+    -DCMAKE_SYSTEM_PROCESSOR="${fam}"
     -DCMAKE_SYSTEM_NAME=Windows
     -DCMAKE_FIND_ROOT_PATH="$PKG_CONFIG_SYSROOT_DIR"
     -DCMAKE_RC_COMPILER="${TARGET}-windres"
+    -DCMAKE_ASM_COMPILER="$AS"
     -DCMAKE_BUILD_TYPE=Release
 )
 
@@ -138,8 +148,8 @@ _ffmpeg () {
         --pkg-config=pkg-config --target-os=mingw32
         --enable-cross-compile --cross-prefix=$TARGET- --arch=${TARGET%%-*}
         --cc="$CC" --cxx="$CXX" $commonflags
-        --disable-{doc,programs,muxers,encoders}
-        --enable-encoder=mjpeg,png --enable-libdav1d
+        --disable-{doc,programs}
+        --enable-muxer=spdif --enable-encoder=mjpeg,png --enable-libdav1d
     )
     pkg-config vulkan && args+=(--enable-vulkan --enable-libshaderc)
     ../configure "${args[@]}"
@@ -191,8 +201,7 @@ _vulkan_headers_mark=include/vulkan/vulkan.h
 _vulkan_loader () {
     [ -d Vulkan-Loader ] || $gitclone https://github.com/KhronosGroup/Vulkan-Loader
     builddir Vulkan-Loader
-    cmake .. "${cmake_args[@]}" \
-        -DENABLE_WERROR=OFF
+    cmake .. "${cmake_args[@]}" -DUSE_GAS=ON
     makeplusinstall
     popd
 }
@@ -219,7 +228,7 @@ _freetype () {
 _freetype_mark=lib/libfreetype.dll.a
 
 _fribidi () {
-    local ver=1.0.13
+    local ver=1.0.14
     gettar "https://github.com/fribidi/fribidi/releases/download/v${ver}/fribidi-${ver}.tar.xz"
     builddir fribidi-${ver}
     meson setup .. --cross-file "$prefix_dir/crossfile" \
@@ -230,7 +239,7 @@ _fribidi () {
 _fribidi_mark=lib/libfribidi.dll.a
 
 _harfbuzz () {
-    local ver=8.3.0
+    local ver=8.4.0
     gettar "https://github.com/harfbuzz/harfbuzz/releases/download/${ver}/harfbuzz-${ver}.tar.xz"
     builddir harfbuzz-${ver}
     meson setup .. --cross-file "$prefix_dir/crossfile" \
@@ -243,8 +252,7 @@ _harfbuzz_mark=lib/libharfbuzz.dll.a
 _libass () {
     [ -d libass ] || $gitclone https://github.com/libass/libass.git
     builddir libass
-    [ -f ../configure ] || (cd .. && ./autogen.sh)
-    ../configure --host=$TARGET $commonflags
+    meson setup .. --cross-file "$prefix_dir/crossfile" -Ddefault_library=shared
     makeplusinstall
     popd
 }
@@ -289,8 +297,11 @@ meson setup $build --cross-file "$prefix_dir/crossfile" \
     --werror                   \
     -Dc_args="-Wno-error=deprecated -Wno-error=deprecated-declarations" \
     --buildtype debugoptimized \
-    -Dlibmpv=true -Dlua=luajit \
-    -D{shaderc,spirv-cross,d3d11}=enabled
+    --force-fallback-for=mujs  \
+    -Dmujs:werror=false        \
+    -Dmujs:default_library=static      \
+    -D{libmpv,tests}=true -Dlua=luajit \
+    -D{shaderc,spirv-cross,d3d11,javascript}=enabled
 
 meson compile -C $build
 
@@ -310,8 +321,10 @@ if [ "$2" = pack ]; then
         libgcc_*.dll lib{ssp,stdc++,winpthread}-[0-9]*.dll # compiler runtime
         av*.dll sw*.dll lib{ass,freetype,fribidi,harfbuzz,iconv,placebo}-[0-9]*.dll
         lib{shaderc_shared,spirv-cross-c-shared,dav1d}.dll zlib1.dll
-        # note: vulkan-1.dll is not here since drivers provide it
     )
+    if [[ -f vulkan-1.dll ]]; then
+        dlls+=(vulkan-1.dll)
+    fi
     mv -v "${dlls[@]}" ..
     popd
 

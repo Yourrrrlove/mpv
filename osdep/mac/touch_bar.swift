@@ -15,6 +15,8 @@
  * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import Cocoa
+
 extension NSTouchBar.CustomizationIdentifier {
     public static let customId: NSTouchBar.CustomizationIdentifier = "io.mpv.touchbar"
 }
@@ -68,14 +70,19 @@ extension TouchBar {
     }
 }
 
-class TouchBar: NSTouchBar, NSTouchBarDelegate {
-    var configs: [NSTouchBarItem.Identifier:Config] = [:]
+class TouchBar: NSTouchBar, NSTouchBarDelegate, EventSubscriber {
+    unowned let appHub: AppHub
+    var event: EventHelper? { return appHub.event }
+    var input: InputHelper { return appHub.input }
+    var configs: [NSTouchBarItem.Identifier: Config] = [:]
+    var observers: [NSKeyValueObservation] = []
     var isPaused: Bool = false { didSet { updatePlayButton() } }
     var position: Double = 0 { didSet { updateTouchBarTimeItems() } }
     var duration: Double = 0 { didSet { updateTouchBarTimeItems() } }
-    var rate: Double = 0
+    var rate: Double = 1
 
-    override init() {
+    init(_ appHub: AppHub) {
+        self.appHub = appHub
         super.init()
 
         configs = [
@@ -128,15 +135,21 @@ class TouchBar: NSTouchBar, NSTouchBarDelegate {
         ]
 
         delegate = self
-        customizationIdentifier = .customId;
+        customizationIdentifier = .customId
         defaultItemIdentifiers = [.play, .previousItem, .nextItem, .seekBar]
         customizationAllowedItemIdentifiers = [.play, .seekBar, .previousItem, .nextItem,
             .previousChapter, .nextChapter, .cycleAudio, .cycleSubtitle, .currentPosition, .timeLeft]
-        addObserver(self, forKeyPath: "visible", options: [.new], context: nil)
+        observers += [observe(\.isVisible, options: [.new]) { _, change in self.changed(visibility: change.newValue) }]
+
+        event?.subscribe(self, event: .init(name: "duration", format: MPV_FORMAT_DOUBLE))
+        event?.subscribe(self, event: .init(name: "time-pos", format: MPV_FORMAT_DOUBLE))
+        event?.subscribe(self, event: .init(name: "speed", format: MPV_FORMAT_DOUBLE))
+        event?.subscribe(self, event: .init(name: "pause", format: MPV_FORMAT_FLAG))
+        event?.subscribe(self, event: .init(name: "MPV_EVENT_END_FILE"))
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
+        fatalError("init(coder:) has not been implemented")
     }
 
     func touchBar(_ touchBar: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
@@ -146,7 +159,7 @@ class TouchBar: NSTouchBar, NSTouchBarDelegate {
         item.view = config.handler(config)
         item.customizationLabel = config.name
         configs[identifier]?.item = item
-        item.addObserver(self, forKeyPath: "visible", options: [.new], context: nil)
+        observers += [item.observe(\.isVisible, options: [.new]) { _, change in self.changed(visibility: change.newValue) }]
         return item
     }
 
@@ -154,27 +167,21 @@ class TouchBar: NSTouchBar, NSTouchBarDelegate {
         return NSButton(image: config.image, target: self, action: #selector(Self.buttonAction(_:)))
     }
 
-    lazy var createText: ViewHandler = { config in
+    lazy var createText: ViewHandler = { _ in
         let text = NSTextField(labelWithString: "0:00")
         text.alignment = .center
         return text
     }
 
-    lazy var createSlider: ViewHandler = { config in
+    lazy var createSlider: ViewHandler = { _ in
         let slider = NSSlider(target: self, action: #selector(Self.seekbarChanged(_:)))
         slider.minValue = 0
         slider.maxValue = 100
         return slider
     }
 
-    override func observeValue(
-        forKeyPath keyPath: String?,
-        of object: Any?,
-        change: [NSKeyValueChangeKey:Any]?,
-        context: UnsafeMutableRawPointer?
-    ) {
-        guard let visible = change?[.newKey] as? Bool else { return }
-        if keyPath == "isVisible" && visible {
+    func changed(visibility: Bool?) {
+        if let visible = visibility, visible {
             updateTouchBarTimeItems()
             updatePlayButton()
         }
@@ -225,12 +232,12 @@ class TouchBar: NSTouchBar, NSTouchBarDelegate {
 
     @objc func buttonAction(_ button: NSButton) {
         guard let identifier = getIdentifierFrom(view: button), let command = configs[identifier]?.command else { return }
-        EventsResponder.sharedInstance().inputHelper.command(command)
+        input.command(command)
     }
 
     @objc func seekbarChanged(_ slider: NSSlider) {
         guard let identifier = getIdentifierFrom(view: slider), let command = configs[identifier]?.command else { return }
-        EventsResponder.sharedInstance().inputHelper.command(String(format: command, slider.doubleValue))
+        input.command(String(format: command, slider.doubleValue))
     }
 
     func format(time: Int) -> String {
@@ -258,44 +265,26 @@ class TouchBar: NSTouchBar, NSTouchBarDelegate {
     }
 
     func getIdentifierFrom(view: NSView) -> NSTouchBarItem.Identifier? {
-        for (identifier, config) in configs {
-            if config.item?.view == view {
-                return identifier
-            }
+        for (identifier, config) in configs where config.item?.view == view {
+            return identifier
         }
         return nil
     }
 
-    @objc func processEvent(_ event: UnsafeMutablePointer<mpv_event>) {
-        switch event.pointee.event_id {
-        case MPV_EVENT_END_FILE:
+    func handle(event: EventHelper.Event) {
+        switch event.name {
+        case "MPV_EVENT_END_FILE":
             position = 0
             duration = 0
-        case MPV_EVENT_PROPERTY_CHANGE:
-            handlePropertyChange(event)
-        default:
-            break
-        }
-    }
-
-    func handlePropertyChange(_ event: UnsafeMutablePointer<mpv_event>) {
-        let pData = OpaquePointer(event.pointee.data)
-        guard let property = UnsafePointer<mpv_event_property>(pData)?.pointee else { return }
-
-        switch String(cString: property.name) {
-        case "time-pos" where property.format == MPV_FORMAT_DOUBLE:
-            let newPosition = max(TypeHelper.toDouble(property.data) ?? 0, 0)
+        case "time-pos":
+            let newPosition = max(event.double ?? 0, 0)
             if Int((floor(newPosition) - floor(position)) / rate) != 0 {
                 position = newPosition
             }
-        case "duration" where property.format == MPV_FORMAT_DOUBLE:
-            duration = TypeHelper.toDouble(property.data) ?? 0
-        case "pause" where property.format == MPV_FORMAT_FLAG:
-            isPaused = TypeHelper.toBool(property.data) ?? false
-        case "speed" where property.format == MPV_FORMAT_DOUBLE:
-            rate = TypeHelper.toDouble(property.data) ?? 1
-        default:
-            break
+        case "pause": isPaused = event.bool ?? false
+        case "duration": duration = event.double ?? 0
+        case "speed": rate = event.double ?? 1
+        default: break
         }
     }
 }

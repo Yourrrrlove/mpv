@@ -16,7 +16,6 @@
  */
 
 #include <string.h>
-#include <strings.h>
 #include <assert.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -64,18 +63,25 @@ int bstrcasecmp(struct bstr str1, struct bstr str2)
 
 int bstrchr(struct bstr str, int c)
 {
-    for (int i = 0; i < str.len; i++)
-        if (str.start[i] == c)
-            return i;
-    return -1;
+    if (!str.len)
+        return -1;
+    unsigned char *pos = memchr(str.start, c, str.len);
+    return pos ? pos - str.start : -1;
 }
 
 int bstrrchr(struct bstr str, int c)
 {
+    if (!str.len)
+        return -1;
+#if HAVE_MEMRCHR
+    unsigned char *pos = memrchr(str.start, c, str.len);
+    return pos ? pos - str.start : -1;
+#else
     for (int i = str.len - 1; i >= 0; i--)
         if (str.start[i] == c)
             return i;
     return -1;
+#endif
 }
 
 int bstrcspn(struct bstr str, const char *reject)
@@ -365,7 +371,7 @@ void bstr_xappend(void *talloc_ctx, bstr *s, bstr append)
     if (!append.len)
         return;
     resize_append(talloc_ctx, s, append.len + 1);
-    memcpy(s->start + s->len, append.start, append.len);
+    memmove(s->start + s->len, append.start, append.len);
     s->len += append.len;
     s->start[s->len] = '\0';
 }

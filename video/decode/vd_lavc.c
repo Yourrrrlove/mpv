@@ -759,11 +759,6 @@ static void init_avctx(struct mp_filter *vd)
     if (!ctx->use_hwdec && ctx->vo && lavc_param->dr) {
         avctx->opaque = vd;
         avctx->get_buffer2 = get_buffer2_direct;
-#if LIBAVCODEC_VERSION_MAJOR < 60
-        AV_NOWARN_DEPRECATED({
-            avctx->thread_safe_callbacks = 1;
-        });
-#endif
     }
 
     avctx->flags |= lavc_param->bitexact ? AV_CODEC_FLAG_BITEXACT : 0;
@@ -780,12 +775,6 @@ static void init_avctx(struct mp_filter *vd)
     if (lavc_codec->id == AV_CODEC_ID_H264 && lavc_param->old_x264)
         av_opt_set(avctx, "x264_build", "150", AV_OPT_SEARCH_CHILDREN);
 
-#ifndef AV_CODEC_EXPORT_DATA_FILM_GRAIN
-    if (ctx->opts->film_grain == 1)
-        MP_WARN(vd, "GPU film grain requested, but FFmpeg too old to expose "
-                    "film grain parameters. Please update to latest master, "
-                    "or at least to release 4.4.\n");
-#else
     switch(ctx->opts->film_grain) {
     case 0: /*CPU*/
         // default lavc flags handle film grain within the decoder.
@@ -808,7 +797,6 @@ static void init_avctx(struct mp_filter *vd)
 
         break;
     }
-#endif
 
     mp_set_avopts(vd->log, avctx, lavc_param->avopts);
 
@@ -1215,6 +1203,8 @@ static int decode_frame(struct mp_filter *vd)
         return ret;
     }
 
+    mp_codec_info_from_av(avctx, ctx->codec);
+
     // If something was decoded successfully, it must return a frame with valid
     // data.
     assert(ctx->pic->buf[0]);
@@ -1236,13 +1226,7 @@ static int decode_frame(struct mp_filter *vd)
 
     mpi->pts = mp_pts_from_av(ctx->pic->pts, &ctx->codec_timebase);
     mpi->dts = mp_pts_from_av(ctx->pic->pkt_dts, &ctx->codec_timebase);
-
-    mpi->pkt_duration =
-#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(59, 30, 100)
-        mp_pts_from_av(ctx->pic->duration, &ctx->codec_timebase);
-#else
-        mp_pts_from_av(ctx->pic->pkt_duration, &ctx->codec_timebase);
-#endif
+    mpi->pkt_duration = mp_pts_from_av(ctx->pic->duration, &ctx->codec_timebase);
 
     av_frame_unref(ctx->pic);
 
@@ -1369,14 +1353,14 @@ static int control(struct mp_filter *vd, enum dec_ctrl cmd, void *arg)
     return CONTROL_UNKNOWN;
 }
 
-static void process(struct mp_filter *vd)
+static void vd_lavc_process(struct mp_filter *vd)
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
 
     lavc_process(vd, &ctx->state, send_packet, receive_frame);
 }
 
-static void reset(struct mp_filter *vd)
+static void vd_lavc_reset(struct mp_filter *vd)
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
 
@@ -1386,7 +1370,7 @@ static void reset(struct mp_filter *vd)
     ctx->framedrop_flags = 0;
 }
 
-static void destroy(struct mp_filter *vd)
+static void vd_lavc_destroy(struct mp_filter *vd)
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
 
@@ -1398,9 +1382,9 @@ static void destroy(struct mp_filter *vd)
 static const struct mp_filter_info vd_lavc_filter = {
     .name = "vd_lavc",
     .priv_size = sizeof(vd_ffmpeg_ctx),
-    .process = process,
-    .reset = reset,
-    .destroy = destroy,
+    .process = vd_lavc_process,
+    .reset = vd_lavc_reset,
+    .destroy = vd_lavc_destroy,
 };
 
 static struct mp_decoder *create(struct mp_filter *parent,
@@ -1443,6 +1427,9 @@ static struct mp_decoder *create(struct mp_filter *parent,
         talloc_free(vd);
         return NULL;
     }
+
+    codec->codec_desc = ctx->avctx->codec_descriptor->long_name;
+
     return &ctx->public;
 }
 

@@ -292,6 +292,18 @@ The ``mp`` module is preloaded, although it can be loaded manually with
 
     After calling this function, key presses will cause the function ``fn`` to
     be called (unless the user remapped the key with another binding).
+    However, if the key binding is canceled , the function will not be called,
+    unless ``complex`` flag is set to ``true``, where the function will be
+    called with the ``canceled`` entry set to ``true``.
+
+    For example, a canceled key binding can happen in the following situations:
+
+    - If key A is pressed while key B is being held down, key B is logically
+      released ("canceled" by key A), which stops the current autorepeat
+      action key B has.
+    - If key A is pressed while a mouse button is being held down, the mouse
+      button is logically released, but the mouse button's action will not be
+      called, unless ``complex`` flag is set to ``true``.
 
     The ``name`` argument should be a short symbolic string. It allows the user
     to remap the key binding via input.conf using the ``script-message``
@@ -318,10 +330,14 @@ The ``mp`` module is preloaded, although it can be loaded manually with
                 ``event``
                     Set to one of the strings ``down``, ``repeat``, ``up`` or
                     ``press`` (the latter if key up/down/repeat can't be
-                    tracked).
+                    tracked), which indicates the key's logical state.
 
                 ``is_mouse``
-                    Boolean Whether the event was caused by a mouse button.
+                    Boolean: Whether the event was caused by a mouse button.
+
+                ``canceled``
+                    Boolean: Whether the event was canceled.
+                    Not all types of cancellations set this flag.
 
                 ``key_name``
                     The name of they key that triggered this, or ``nil`` if
@@ -888,9 +904,8 @@ REPL.
         present a list of options with ``input.set_log()``.
 
     ``edited``
-        A callback invoked when the text changes. This can be used to filter a
-        list of options based on what the user typed with ``input.set_log()``,
-        like dmenu does. The first argument is the text in the console.
+        A callback invoked when the text changes. The first argument is the text
+        in the console.
 
     ``complete``
         A callback invoked when the user presses TAB. The first argument is the
@@ -950,6 +965,44 @@ REPL.
                 terminal_style = "\027[31m",
             }
         })
+
+``input.select(table)``
+    Specify a list of items that are presented to the user for selection. The
+    user can type part of the desired item and/or navigate them with
+    keybindings: ``Down`` and ``Ctrl+n`` go down, ``Up`` and ``Ctrl+p`` go up,
+    ``Page down`` and ``Ctrl+f`` scroll down one page, and ``Page up`` and
+    ``Ctrl+b`` scroll up one page.
+
+    The following entries of ``table`` are read:
+
+    ``prompt``
+        The string to be displayed before the input field.
+
+    ``items``
+        The table of the entries to choose from.
+
+    ``default_item``
+        The 1-based integer index of the preselected item.
+
+    ``submit``
+        The callback invoked when the user presses Enter. The first argument is
+        the 1-based index of the selected item. Unlike with ``input.get()``, the
+        console is automatically closed on submit without having to call
+        ``input.terminate()``.
+
+    Example:
+
+        ::
+
+            input.select({
+                items = {
+                    "First playlist entry",
+                    "Second playlist entry",
+                },
+                submit = function (id)
+                    mp.commandv("playlist-play-index", id - 1)
+                end,
+            })
 
 Events
 ------

@@ -26,7 +26,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include "cache.h"
 #include "config.h"
@@ -663,7 +662,7 @@ static void update_seek_ranges(struct demux_cached_range *range)
         }
     }
 
-    if (range->seek_start >= range->seek_end)
+    if (range->seek_start >= range->seek_end && !(range->is_bof && range->is_eof))
         goto broken;
 
     prune_metadata(range);
@@ -3173,19 +3172,26 @@ void demux_update(demuxer_t *demuxer, double pts)
 
 static void demux_init_cuesheet(struct demuxer *demuxer)
 {
+    if (demuxer->num_chapters)
+        return;
+
+    struct sh_stream *sh = demuxer->in->metadata_stream;
     char *cue = mp_tags_get_str(demuxer->metadata, "cuesheet");
-    if (cue && !demuxer->num_chapters) {
-        struct cue_file *f = mp_parse_cue(bstr0(cue));
-        if (f) {
-            if (mp_check_embedded_cue(f) < 0) {
-                MP_WARN(demuxer, "Embedded cue sheet references more than one file. "
-                        "Ignoring it.\n");
-            } else {
-                for (int n = 0; n < f->num_tracks; n++) {
-                    struct cue_track *t = &f->tracks[n];
-                    int idx = demuxer_add_chapter(demuxer, "", t->start, -1);
-                    mp_tags_merge(demuxer->chapters[idx].metadata, t->tags);
-                }
+    if (!cue && sh)
+        cue = mp_tags_get_str(sh->tags, "cuesheet");
+    if (!cue)
+        return;
+
+    struct cue_file *f = mp_parse_cue(bstr0(cue));
+    if (f) {
+        if (mp_check_embedded_cue(f) < 0) {
+            MP_WARN(demuxer, "Embedded cue sheet references more than one file. "
+                    "Ignoring it.\n");
+        } else {
+            for (int n = 0; n < f->num_tracks; n++) {
+                struct cue_track *t = &f->tracks[n];
+                int idx = demuxer_add_chapter(demuxer, "", t->start, -1);
+                mp_tags_merge(demuxer->chapters[idx].metadata, t->tags);
             }
         }
         talloc_free(f);
@@ -3958,6 +3964,28 @@ static void initiate_refresh_seek(struct demux_internal *in,
     in->seek_pts = start_ts;
 }
 
+// Called locked.
+static void refresh_track(struct demuxer *demuxer, struct sh_stream *stream,
+                          double ref_pts)
+{
+    struct demux_internal *in = demuxer->in;
+    struct demux_stream *ds = stream->ds;
+    ref_pts = MP_ADD_PTS(ref_pts, -in->ts_offset);
+
+    MP_VERBOSE(in, "refresh track %d\n", stream->index);
+    if (in->back_demuxing)
+        ds->back_seek_pos = ref_pts;
+    // Allow refresh seek for non-video streams, even if no packets have
+    // ever been read yet or after seeking. This is necessary because:
+    // - A-V sync targets may come from different demuxers, so enabling an external
+    //   audio track for the first time can cause desync since a seek is not performed.
+    // - If cache is enabled and a seek causes some new data to be cached, the demuxer
+    //   is sought to the end of cache after cache joining. Switching track immediately
+    //   after this also causes the same problem.
+    if (!in->after_seek || ds->type != STREAM_VIDEO)
+        initiate_refresh_seek(in, ds, ref_pts);
+}
+
 // Set whether the given stream should return packets.
 // ref_pts is used only if the stream is enabled. Then it serves as approximate
 // start pts for this stream (in the worst case it is ignored).
@@ -3967,19 +3995,14 @@ void demuxer_select_track(struct demuxer *demuxer, struct sh_stream *stream,
     struct demux_internal *in = demuxer->in;
     struct demux_stream *ds = stream->ds;
     mp_mutex_lock(&in->lock);
-    ref_pts = MP_ADD_PTS(ref_pts, -in->ts_offset);
     // don't flush buffers if stream is already selected / unselected
     if (ds->selected != selected) {
         MP_VERBOSE(in, "%sselect track %d\n", selected ? "" : "de", stream->index);
         ds->selected = selected;
         update_stream_selection_state(in, ds);
         in->tracks_switched = true;
-        if (ds->selected) {
-            if (in->back_demuxing)
-                ds->back_seek_pos = ref_pts;
-            if (!in->after_seek)
-                initiate_refresh_seek(in, ds, ref_pts);
-        }
+        if (ds->selected)
+            refresh_track(demuxer, stream, ref_pts);
         if (in->threading) {
             mp_cond_signal(&in->wakeup);
         } else {
@@ -3997,14 +4020,9 @@ void demuxer_refresh_track(struct demuxer *demuxer, struct sh_stream *stream,
     struct demux_internal *in = demuxer->in;
     struct demux_stream *ds = stream->ds;
     mp_mutex_lock(&in->lock);
-    ref_pts = MP_ADD_PTS(ref_pts, -in->ts_offset);
     if (ds->selected) {
-        MP_VERBOSE(in, "refresh track %d\n", stream->index);
         update_stream_selection_state(in, ds);
-        if (in->back_demuxing)
-            ds->back_seek_pos = ref_pts;
-        if (!in->after_seek)
-            initiate_refresh_seek(in, ds, ref_pts);
+        refresh_track(demuxer, stream, ref_pts);
     }
     mp_mutex_unlock(&in->lock);
 }
@@ -4480,9 +4498,11 @@ void demux_get_reader_state(struct demuxer *demuxer, struct demux_reader_state *
 
     *r = (struct demux_reader_state){
         .eof = in->eof,
-        .ts_reader = MP_NOPTS_VALUE,
-        .ts_end = MP_NOPTS_VALUE,
-        .ts_duration = -1,
+        .ts_info = {
+            .reader = MP_NOPTS_VALUE,
+            .end = MP_NOPTS_VALUE,
+            .duration = -1,
+        },
         .total_bytes = in->total_bytes,
         .seeking = in->seeking_in_progress,
         .low_level_seeks = in->low_level_seeks,
@@ -4492,24 +4512,55 @@ void demux_get_reader_state(struct demuxer *demuxer, struct demux_reader_state *
         .file_cache_bytes = in->cache ? demux_cache_get_size(in->cache) : -1,
     };
     bool any_packets = false;
+    for (int n = 0; n < STREAM_TYPE_COUNT; n++) {
+        r->ts_per_stream[n] = r->ts_info;
+    }
     for (int n = 0; n < in->num_streams; n++) {
         struct demux_stream *ds = in->streams[n]->ds;
         if (ds->eager && !(!ds->queue->head && ds->eof) && !ds->ignore_eof) {
             r->underrun |= !ds->reader_head && !ds->eof && !ds->still_image;
-            r->ts_reader = MP_PTS_MAX(r->ts_reader, ds->base_ts);
-            r->ts_end = MP_PTS_MAX(r->ts_end, ds->queue->last_ts);
             any_packets |= !!ds->reader_head;
+
+            double ts_reader = ds->base_ts;
+            double ts_end = ds->queue->last_ts;
+            double ts_duration = -1;
+            if (ts_reader != MP_NOPTS_VALUE && ts_reader <= ts_end)
+                ts_duration = ts_end - ts_reader;
+
+            struct demux_ctrl_ts_info *i = &r->ts_per_stream[ds->type];
+            i->reader = MP_PTS_MIN(i->reader, ts_reader);
+            i->end = MP_PTS_MIN(i->end, ts_end);
+            i->duration = ts_duration;
         }
         r->fw_bytes += get_forward_buffered_bytes(ds);
     }
+    struct demux_ctrl_ts_info *ots = &r->ts_info;
+    // find stream type with lowest duration and use its state
+    for (int n = 0; n < STREAM_TYPE_COUNT; n++) {
+        struct demux_ctrl_ts_info *ts = &r->ts_per_stream[n];
+        if (r->ts_info.duration != -1) {
+            // skip if timestamps unknown
+            if (ts->duration == -1)
+                continue;
+            // skip if we already know of a smaller cached stream
+            if (ts->duration > ots->duration)
+                continue;
+            // skip empty subtitle streams when other streams exist
+            if (n == STREAM_SUB && ts->duration == 0.0)
+                continue;
+        }
+        ots->duration = ts->duration;
+        ots->reader = ts->reader;
+        ots->end = ts->end;
+    }
     r->idle = (!in->reading && !r->underrun) || r->eof;
     r->underrun &= !r->idle && in->threading;
-    r->ts_reader = MP_ADD_PTS(r->ts_reader, in->ts_offset);
-    r->ts_end = MP_ADD_PTS(r->ts_end, in->ts_offset);
-    if (r->ts_reader != MP_NOPTS_VALUE && r->ts_reader <= r->ts_end)
-        r->ts_duration = r->ts_end - r->ts_reader;
+    ots->reader = MP_ADD_PTS(ots->reader, in->ts_offset);
+    ots->end = MP_ADD_PTS(ots->end, in->ts_offset);
+    if (ots->reader != MP_NOPTS_VALUE && ots->reader <= ots->end)
+        ots->duration = ots->end - ots->reader;
     if (in->seeking || !any_packets)
-        r->ts_duration = 0;
+        ots->duration = 0;
     for (int n = 0; n < MPMIN(in->num_ranges, MAX_SEEK_RANGES); n++) {
         struct demux_cached_range *range = in->ranges[n];
         if (range->seek_start != MP_NOPTS_VALUE) {

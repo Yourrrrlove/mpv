@@ -46,6 +46,7 @@
 #include "video/hwdec.h"
 #include "video/image_writer.h"
 #include "sub/osd.h"
+#include "sub/sd.h"
 #include "player/core.h"
 #include "player/command.h"
 #include "stream/stream.h"
@@ -69,7 +70,6 @@ extern const struct m_sub_options demux_rawvideo_conf;
 extern const struct m_sub_options demux_playlist_conf;
 extern const struct m_sub_options demux_lavf_conf;
 extern const struct m_sub_options demux_mkv_conf;
-extern const struct m_sub_options demux_cue_conf;
 extern const struct m_sub_options vd_lavc_conf;
 extern const struct m_sub_options ad_lavc_conf;
 extern const struct m_sub_options input_config;
@@ -99,6 +99,7 @@ extern const struct m_sub_options macos_conf;
 extern const struct m_sub_options wayland_conf;
 extern const struct m_sub_options wingl_conf;
 extern const struct m_sub_options vaapi_conf;
+extern const struct m_sub_options egl_conf;
 
 static const struct m_sub_options screenshot_conf = {
     .opts = image_writer_opts,
@@ -123,12 +124,12 @@ static const m_option_t mp_vo_opt_list[] = {
     {"border", OPT_BOOL(border)},
     {"title-bar", OPT_BOOL(title_bar)},
     {"on-all-workspaces", OPT_BOOL(all_workspaces)},
-    {"geometry", OPT_GEOMETRY(geometry)},
-    {"autofit", OPT_SIZE_BOX(autofit)},
-    {"autofit-larger", OPT_SIZE_BOX(autofit_larger)},
-    {"autofit-smaller", OPT_SIZE_BOX(autofit_smaller)},
+    {"geometry", OPT_GEOMETRY(geometry), .force_update = true},
+    {"autofit", OPT_SIZE_BOX(autofit), .force_update = true},
+    {"autofit-larger", OPT_SIZE_BOX(autofit_larger), .force_update = true},
+    {"autofit-smaller", OPT_SIZE_BOX(autofit_smaller), .force_update = true},
     {"auto-window-resize", OPT_BOOL(auto_window_resize)},
-    {"window-scale", OPT_DOUBLE(window_scale), M_RANGE(0.001, 100)},
+    {"window-scale", OPT_DOUBLE(window_scale), M_RANGE(0.001, 100), .force_update = true},
     {"window-minimized", OPT_BOOL(window_minimized)},
     {"window-maximized", OPT_BOOL(window_maximized)},
     {"focus-on-open", OPT_REMOVED("Replaced by --focus-on")},
@@ -169,6 +170,8 @@ static const m_option_t mp_vo_opt_list[] = {
     {"keepaspect-window", OPT_BOOL(keepaspect_window)},
     {"hidpi-window-scale", OPT_BOOL(hidpi_window_scale)},
     {"native-fs", OPT_BOOL(native_fs)},
+    {"native-touch", OPT_BOOL(native_touch)},
+    {"show-in-taskbar", OPT_BOOL(show_in_taskbar)},
     {"display-fps-override", OPT_DOUBLE(display_fps_override),
         M_RANGE(0, DBL_MAX)},
     {"video-timing-offset", OPT_DOUBLE(timing_offset), M_RANGE(0.0, 1.0)},
@@ -243,6 +246,7 @@ const struct m_sub_options vo_sub_opts = {
         .keepaspect_window = true,
         .native_fs = true,
         .taskbar_progress = true,
+        .show_in_taskbar = true,
         .border = true,
         .title_bar = true,
         .appid = "mpv",
@@ -307,6 +311,7 @@ const struct m_sub_options mp_subtitle_sub_opts = {
         {"sub-ass-vsfilter-color-compat", OPT_CHOICE(ass_vsfilter_color_compat,
             {"no", 0}, {"basic", 1}, {"full", 2}, {"force-601", 3})},
         {"sub-ass-vsfilter-blur-compat", OPT_BOOL(ass_vsfilter_blur_compat)},
+        {"sub-vsfilter-bidi-compat", OPT_BOOL(sub_vsfilter_bidi_compat)},
         {"embeddedfonts", OPT_BOOL(use_embedded_fonts), .flags = UPDATE_SUB_HARD},
         {"sub-ass-style-overrides", OPT_STRINGLIST(ass_style_override_list),
             .flags = UPDATE_SUB_HARD},
@@ -322,7 +327,7 @@ const struct m_sub_options mp_subtitle_sub_opts = {
         {"sub-ass-scale-with-window", OPT_BOOL(ass_scale_with_window)},
         {"sub", OPT_SUBSTRUCT(sub_style, sub_style_conf)},
         {"sub-clear-on-seek", OPT_BOOL(sub_clear_on_seek)},
-        {"teletext-page", OPT_INT(teletext_page), M_RANGE(-1, 999)},
+        {"teletext-page", OPT_INT(teletext_page), M_RANGE(-1, 999), .flags = UPDATE_SUB_FILT},
         {"sub-past-video-end", OPT_BOOL(sub_past_video_end)},
         {"sub-ass-force-style", OPT_REPLACED("sub-ass-style-overrides")},
         {"sub-lavc-o", OPT_KEYVALUELIST(sub_avopts)},
@@ -358,10 +363,18 @@ const struct m_sub_options mp_subtitle_shared_sub_opts = {
         {"sub-visibility", OPT_BOOL(sub_visibility[0])},
         {"secondary-sub-visibility", OPT_BOOL(sub_visibility[1])},
         {"sub-ass-override", OPT_CHOICE(ass_style_override[0],
-            {"no", 0}, {"yes", 1}, {"force", 3}, {"scale", 4}, {"strip", 5}),
+            {"no", ASS_STYLE_OVERRIDE_NONE},
+            {"yes", ASS_STYLE_OVERRIDE_YES},
+            {"scale", ASS_STYLE_OVERRIDE_SCALE},
+            {"force", ASS_STYLE_OVERRIDE_FORCE},
+            {"strip", ASS_STYLE_OVERRIDE_STRIP}),
             .flags = UPDATE_SUB_HARD},
         {"secondary-sub-ass-override", OPT_CHOICE(ass_style_override[1],
-            {"no", 0}, {"yes", 1}, {"force", 3}, {"scale", 4}, {"strip", 5}),
+            {"no", ASS_STYLE_OVERRIDE_NONE},
+            {"yes", ASS_STYLE_OVERRIDE_YES},
+            {"scale", ASS_STYLE_OVERRIDE_SCALE},
+            {"force", ASS_STYLE_OVERRIDE_FORCE},
+            {"strip", ASS_STYLE_OVERRIDE_STRIP}),
             .flags = UPDATE_SUB_HARD},
         {0}
     },
@@ -370,8 +383,8 @@ const struct m_sub_options mp_subtitle_shared_sub_opts = {
         .sub_visibility[0] = true,
         .sub_visibility[1] = true,
         .sub_pos[0] = 100,
-        .ass_style_override[0] = 1,
-        .ass_style_override[1] = 5,
+        .ass_style_override[0] = ASS_STYLE_OVERRIDE_SCALE,
+        .ass_style_override[1] = ASS_STYLE_OVERRIDE_STRIP,
     },
     .change_flags = UPDATE_OSD,
 };
@@ -543,6 +556,7 @@ static const m_option_t mp_opts[] = {
     {"load-auto-profiles",
         OPT_CHOICE(lua_load_auto_profiles, {"no", 0}, {"yes", 1}, {"auto", -1}),
         .flags = UPDATE_BUILTIN_SCRIPTS},
+    {"load-select", OPT_BOOL(lua_load_select), .flags = UPDATE_BUILTIN_SCRIPTS},
 #endif
 
 // ------------------------- stream options --------------------
@@ -617,7 +631,6 @@ static const m_option_t mp_opts[] = {
 
 #if HAVE_CDDA
     {"cdda", OPT_SUBSTRUCT(stream_cdda_opts, stream_cdda_conf)},
-    {"cdrom-device", OPT_REPLACED("cdda-device")},
 #endif
 
     // demuxer.c - select audio/sub file/demuxer
@@ -669,7 +682,6 @@ static const m_option_t mp_opts[] = {
     {"demuxer-rawvideo", OPT_SUBSTRUCT(demux_rawvideo, demux_rawvideo_conf)},
     {"", OPT_SUBSTRUCT(demux_playlist, demux_playlist_conf)},
     {"demuxer-mkv", OPT_SUBSTRUCT(demux_mkv, demux_mkv_conf)},
-    {"demuxer-cue", OPT_SUBSTRUCT(demux_cue, demux_cue_conf)},
 
 // ------------------------- subtitles options --------------------
 
@@ -722,11 +734,7 @@ static const m_option_t mp_opts[] = {
     {"volume-gain-min", OPT_FLOAT(softvol_gain_min), M_RANGE(-150, 0)},
     {"volume-gain", OPT_FLOAT(softvol_gain), .flags = UPDATE_VOL,
         M_RANGE(-150, 150)},
-    {"mute", OPT_CHOICE(softvol_mute,
-        {"no", 0},
-        {"auto", 0},
-        {"yes", 1}),
-        .flags = UPDATE_VOL},
+    {"mute", OPT_BOOL(softvol_mute), .flags = UPDATE_VOL},
     {"replaygain", OPT_CHOICE(rgain_mode,
         {"no", 0},
         {"track", 1},
@@ -848,6 +856,9 @@ static const m_option_t mp_opts[] = {
     {"osd-msg2", OPT_STRING(osd_msg[1]), .flags = UPDATE_OSD},
     {"osd-msg3", OPT_STRING(osd_msg[2]), .flags = UPDATE_OSD},
 
+    {"osd-playlist-entry", OPT_CHOICE(playlist_entry_name,
+        {"title", 0}, {"filename", 1}, {"both", 2})},
+
     {"video-osd", OPT_BOOL(video_osd), .flags = UPDATE_OSD},
 
     {"idle", OPT_CHOICE(player_idle_mode,
@@ -884,6 +895,10 @@ static const m_option_t mp_opts[] = {
 
 #if HAVE_GL
     {"", OPT_SUBSTRUCT(opengl_opts, opengl_conf)},
+#endif
+
+#if HAVE_EGL || HAVE_EGL_ANDROID || HAVE_EGL_ANGLE_WIN32
+    {"egl", OPT_SUBSTRUCT(egl_opts, egl_conf)},
 #endif
 
 #if HAVE_VULKAN
@@ -937,7 +952,6 @@ static const m_option_t mp_opts[] = {
     {"", OPT_SUBSTRUCT(encode_opts, encode_config)},
 
     {"play-dir", OPT_REPLACED("play-direction")},
-    {"sub-forced-only", OPT_REPLACED("sub-forced-events-only")},
     {0}
 };
 
@@ -965,6 +979,7 @@ static const struct MPOpts mp_default_opts = {
     .lua_load_stats = true,
     .lua_load_console = true,
     .lua_load_auto_profiles = -1,
+    .lua_load_select = true,
 #endif
     .auto_load_scripts = true,
     .loop_times = 1,
@@ -1108,13 +1123,15 @@ static const struct MPOpts mp_default_opts = {
         "sub-delay",
         "sub-speed",
         "sub-pos",
-        "secondary-sub-pos",
         "sub-visibility",
         "sub-scale",
         "sub-use-margins",
         "sub-ass-force-margins",
         "sub-ass-vsfilter-aspect-compat",
         "sub-ass-override",
+        "secondary-sid",
+        "secondary-sub-delay",
+        "secondary-sub-pos",
         "secondary-sub-ass-override",
         "secondary-sub-visibility",
         "ab-loop-a",

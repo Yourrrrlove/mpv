@@ -18,7 +18,6 @@
 #include <stddef.h>
 #include <string.h>
 #include <assert.h>
-#include <unistd.h>
 
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vaapi.h>
@@ -85,16 +84,18 @@ static const struct va_create_native create_native_cbs[] = {
 #if HAVE_VAAPI_DRM
     {"drm",     create_drm_va_display},
 #endif
+    {0}
 };
 
 static VADisplay *create_native_va_display(struct ra *ra, struct mp_log *log)
 {
-    for (int n = 0; n < MP_ARRAY_SIZE(create_native_cbs); n++) {
-        const struct va_create_native *disp = &create_native_cbs[n];
+    const struct va_create_native *disp = create_native_cbs;
+    while (disp->name) {
         mp_verbose(log, "Trying to open a %s VA display...\n", disp->name);
         VADisplay *display = disp->create(ra);
         if (display)
             return display;
+        disp++;
     }
     return NULL;
 }
@@ -242,7 +243,7 @@ static int mapper_init(struct ra_hwdec_mapper *mapper)
 
     if (mapper->ra->num_formats &&
             !ra_get_imgfmt_desc(mapper->ra, mapper->dst_params.imgfmt, &desc))
-       return -1;
+        return -1;
 
     p->num_planes = desc.num_planes;
     mp_image_set_params(&p->layout, &mapper->dst_params);

@@ -28,14 +28,14 @@
 #include "osdep/semaphore.h"
 #include "audio/format.h"
 
-#if HAVE_COREAUDIO
+#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
 #include "audio/out/ao_coreaudio_properties.h"
 #include <CoreAudio/HostTime.h>
 #else
 #include <mach/mach_time.h>
 #endif
 
-#if HAVE_COREAUDIO
+#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
 static bool ca_is_output_device(struct ao *ao, AudioDeviceID dev)
 {
     size_t n_buffers;
@@ -138,7 +138,8 @@ bool check_ca_st(struct ao *ao, int level, OSStatus code, const char *message)
 {
     if (code == noErr) return true;
 
-    mp_msg(ao->log, level, "%s (%s/%d)\n", message, mp_tag_str(code), (int)code);
+    if (ao)
+        mp_msg(ao->log, level, "%s (%s/%d)\n", message, mp_tag_str(code), (int)code);
 
     return false;
 }
@@ -235,20 +236,20 @@ void ca_print_asbd(struct ao *ao, const char *description,
     int mpfmt       = ca_asbd_to_mp_format(asbd);
 
     MP_VERBOSE(ao,
-       "%s %7.1fHz %" PRIu32 "bit %s "
-       "[%" PRIu32 "][%" PRIu32 "bpp][%" PRIu32 "fbp]"
-       "[%" PRIu32 "bpf][%" PRIu32 "ch] "
-       "%s %s %s%s%s%s (%s)\n",
-       description, asbd->mSampleRate, asbd->mBitsPerChannel, format,
-       asbd->mFormatFlags, asbd->mBytesPerPacket, asbd->mFramesPerPacket,
-       asbd->mBytesPerFrame, asbd->mChannelsPerFrame,
-       (flags & kAudioFormatFlagIsFloat) ? "float" : "int",
-       (flags & kAudioFormatFlagIsBigEndian) ? "BE" : "LE",
-       (flags & kAudioFormatFlagIsSignedInteger) ? "S" : "U",
-       (flags & kAudioFormatFlagIsPacked) ? " packed" : "",
-       (flags & kAudioFormatFlagIsAlignedHigh) ? " aligned" : "",
-       (flags & kAudioFormatFlagIsNonInterleaved) ? " P" : "",
-       mpfmt ? af_fmt_to_str(mpfmt) : "-");
+        "%s %7.1fHz %" PRIu32 "bit %s "
+        "[%" PRIu32 "][%" PRIu32 "bpp][%" PRIu32 "fbp]"
+        "[%" PRIu32 "bpf][%" PRIu32 "ch] "
+        "%s %s %s%s%s%s (%s)\n",
+        description, asbd->mSampleRate, asbd->mBitsPerChannel, format,
+        asbd->mFormatFlags, asbd->mBytesPerPacket, asbd->mFramesPerPacket,
+        asbd->mBytesPerFrame, asbd->mChannelsPerFrame,
+        (flags & kAudioFormatFlagIsFloat) ? "float" : "int",
+        (flags & kAudioFormatFlagIsBigEndian) ? "BE" : "LE",
+        (flags & kAudioFormatFlagIsSignedInteger) ? "S" : "U",
+        (flags & kAudioFormatFlagIsPacked) ? " packed" : "",
+        (flags & kAudioFormatFlagIsAlignedHigh) ? " aligned" : "",
+        (flags & kAudioFormatFlagIsNonInterleaved) ? " P" : "",
+        mpfmt ? af_fmt_to_str(mpfmt) : "-");
 }
 
 // Return whether new is an improvement over old. Assume a higher value means
@@ -299,7 +300,7 @@ int64_t ca_frames_to_ns(struct ao *ao, uint32_t frames)
 
 int64_t ca_get_latency(const AudioTimeStamp *ts)
 {
-#if HAVE_COREAUDIO
+#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
     uint64_t out = AudioConvertHostTimeToNanos(ts->mHostTime);
     uint64_t now = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime());
 
@@ -322,7 +323,7 @@ int64_t ca_get_latency(const AudioTimeStamp *ts)
 #endif
 }
 
-#if HAVE_COREAUDIO
+#if HAVE_COREAUDIO || HAVE_AVFOUNDATION
 bool ca_stream_supports_compressed(struct ao *ao, AudioStreamID stream)
 {
     AudioStreamRangedDescription *formats = NULL;

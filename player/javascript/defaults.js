@@ -311,6 +311,7 @@ function add_binding(forced, key, name, fn, opts) {
             fn({
                 event: KEY_STATES[state[0]] || "unknown",
                 is_mouse: state[1] == "m",
+                canceled: state[2] == "c",
                 key_name: key_name || undefined,
                 key_text: key_text || undefined
             });
@@ -321,7 +322,10 @@ function add_binding(forced, key, name, fn, opts) {
             // Emulate the semantics at input.c: mouse emits on up, kb on down.
             // Also, key repeat triggers the binding again.
             var e = state[0],
-                emit = (state[1] == "m") ? (e == "u") : (e == "d");
+                emit = (state[1] == "m") ? (e == "u") : (e == "d"),
+                canceled = state[2] == "c";
+            if (canceled)
+                return;
             if (emit || e == "p" || e == "r" && key_data.repeatable)
                 fn();
         }
@@ -646,6 +650,23 @@ mp.options = { read_options: read_options };
 /**********************************************************************
 *  input
 *********************************************************************/
+function register_event_handler(t) {
+    mp.register_script_message("input-event", function (type, args) {
+        if (t[type]) {
+            args = JSON.parse(args)
+            var result = t[type](args[0], args[1]);
+
+            if (type == "complete" && result) {
+                mp.commandv("script-message-to", "console", "complete",
+                            JSON.stringify(result[0]), result[1]);
+            }
+        }
+
+        if (type == "closed")
+            mp.unregister_script_message("input-event");
+    })
+}
+
 mp.input = {
     get: function(t) {
         mp.commandv("script-message-to", "console", "get-input", mp.script_name,
@@ -656,22 +677,17 @@ mp.input = {
                         id: t.id,
                     }));
 
-        mp.register_script_message("input-event", function (type, text, cursor_position) {
-            if (t[type]) {
-                var result = t[type](text, cursor_position);
+        register_event_handler(t)
+    },
+    select: function (t) {
+        mp.commandv("script-message-to", "console", "get-input", mp.script_name,
+                    JSON.stringify({
+                        prompt: t.prompt,
+                        items: t.items,
+                        default_item: t.default_item,
+                    }));
 
-                if (type == "complete" && result) {
-                    mp.commandv("script-message-to", "console", "complete",
-                                JSON.stringify(result[0]), result[1]);
-                }
-            }
-
-            if (type == "closed") {
-                mp.unregister_script_message("input-event");
-            }
-        })
-
-        return true;
+        register_event_handler(t);
     },
     terminate: function () {
         mp.commandv("script-message-to", "console", "disable");

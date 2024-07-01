@@ -1,5 +1,6 @@
 -- Compatibility shim for lua 5.2/5.3
-unpack = unpack or table.unpack
+-- luacheck: globals unpack
+unpack = unpack or table.unpack -- luacheck: globals table.unpack
 
 -- these are used internally by lua.c
 mp.UNKNOWN_TYPE.info = "this value is inserted if the C type is not supported"
@@ -95,7 +96,7 @@ function mp.set_key_bindings(list, section, flags)
         local cb_up = entry[4]
         if type(cb) ~= "string" then
             local mangle = reserve_binding()
-            dispatch_key_bindings[mangle] = function(name, state)
+            dispatch_key_bindings[mangle] = function(_, state)
                 local event = state:sub(1, 1)
                 local is_mouse = state:sub(2, 2) == "m"
                 local def = (is_mouse and "u") or "d"
@@ -156,7 +157,7 @@ function mp.flush_keybindings()
             flags = "force"
         end
         local bindings = {}
-        for k, v in pairs(key_bindings) do
+        for _, v in pairs(key_bindings) do
             if v.bind and v.forced ~= def then
                 bindings[#bindings + 1] = v
             end
@@ -199,13 +200,14 @@ local function add_binding(attrs, key, name, fn, rp)
             ["r"] = "repeat",
             ["p"] = "press",
         }
-        key_cb = function(name, state, key_name, key_text)
+        key_cb = function(_, state, key_name, key_text)
             if key_text == "" then
                 key_text = nil
             end
             fn({
                 event = key_states[state:sub(1, 1)] or "unknown",
                 is_mouse = state:sub(2, 2) == "m",
+                canceled = state:sub(3, 3) == "c",
                 key_name = key_name,
                 key_text = key_text,
             })
@@ -214,14 +216,15 @@ local function add_binding(attrs, key, name, fn, rp)
             fn({event = "press", is_mouse = false})
         end
     else
-        key_cb = function(name, state)
+        key_cb = function(_, state)
             -- Emulate the same semantics as input.c uses for most bindings:
             -- For keyboard, "down" runs the command, "up" does nothing;
             -- for mouse, "down" does nothing, "up" runs the command.
             -- Also, key repeat triggers the binding again.
             local event = state:sub(1, 1)
             local is_mouse = state:sub(2, 2) == "m"
-            if event == "r" and not repeatable then
+            local canceled = state:sub(3, 3) == "c"
+            if canceled or event == "r" and not repeatable then
                 return
             end
             if is_mouse and (event == "u" or event == "p") then
@@ -428,7 +431,7 @@ end
 function mp.unregister_event(cb)
     for name, sub in pairs(event_handlers) do
         local found = false
-        for i, e in ipairs(sub) do
+        for _, e in ipairs(sub) do
             if e == cb then
                 found = true
                 break

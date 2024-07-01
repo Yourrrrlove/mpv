@@ -227,12 +227,10 @@ Alt+BACKSPACE
     Reset the pan/zoom settings.
 
 F8
-    Show the playlist and the current position in it (useful only if a UI window
-    is used, broken on the terminal).
+    Show the playlist and the current position in it.
 
 F9
-    Show the list of audio and subtitle streams (useful only if a UI window  is
-    used, broken on the terminal).
+    Show the list of audio and subtitle streams.
 
 i and I
     Show/toggle an overlay displaying statistics about the currently playing
@@ -272,6 +270,46 @@ Alt+2 (and Command+2 on macOS)
 Command + f (macOS only)
     Toggle fullscreen (see also ``--fs``).
 
+(The following keybindings open a selector in the console that lets you choose
+from a list of items by typing part of the desired item and/or by navigating
+them with keybindings: ``Down`` and ``Ctrl+n`` go down, ``Up`` and ``Ctrl+p`` go
+up, ``Page down`` and ``Ctrl+f`` scroll down one page, and ``Page up`` and
+``Ctrl+b`` scroll up one page.)
+
+g-p
+    Select a playlist entry.
+
+g-s
+    Select a subtitle track.
+
+g-S
+    Select a secondary subtitle track.
+
+g-a
+    Select an audio track.
+
+g-v
+    Select a video track.
+
+g-t
+    Select a track of any type.
+
+g-c
+    Select a chapter.
+
+g-l
+    Select a subtitle line to seek to. This currently requires ``ffmpeg`` in
+    ``PATH``, or in the same folder as mpv on Windows.
+
+g-d
+    Select an audio device.
+
+g-b
+    Select a defined input binding.
+
+g-r
+    Show the values of all properties.
+
 (The following keys are valid if you have a keyboard with multimedia keys.)
 
 PAUSE
@@ -309,6 +347,21 @@ Wheel left/right
 
 Ctrl+Wheel up/down
     Change video zoom.
+
+Context Menu
+-------------
+
+.. warning::
+
+    This feature is experimental. It may not work with all VOs. A libass based
+    fallback may be implemented in the future.
+
+Context Menu is a menu that pops up on the video window on user interaction
+(mouse right click, etc.).
+
+To use this feature, you need to fill the ``menu-data`` property with menu
+definition data, and add a keybinding to run the ``context-menu`` command,
+which can be done with a user script.
 
 USAGE
 =====
@@ -544,7 +597,7 @@ Suffix        Meaning
 -pre          Prepend 1 or more items (same syntax as -set)
 -clr          Clear the option (remove all items)
 -remove       Delete item if present (does not interpret escapes)
--toggle       Append an item, or remove if if it already exists (no escapes)
+-toggle       Append an item, or remove it if it already exists (no escapes)
 ============= ===============================================
 
 ``-append`` is meant as a simple way to append a single item without having
@@ -578,23 +631,24 @@ appropriate structured data type.
 
 Prior to mpv 0.33, ``:`` was also recognized as separator by ``-set``.
 
-Filter options
-~~~~~~~~~~~~~~
+Object settings list options
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This is a very complex option type for the ``--af`` and ``--vf`` options only.
-They often require complicated escaping. See `VIDEO FILTERS`_ for details. They
-support the following operations:
+This is a very complex option type for some options, such as ``--af`` and ``--vf``.
+They often require complicated escaping. See `VIDEO FILTERS`_ for details.
+
+They support the following operations:
 
 ============= ===============================================
 Suffix        Meaning
 ============= ===============================================
--set          Set a list of filters (using ``,`` as separator)
--append       Append single filter
--add          Append 1 or more filters (same syntax as -set)
--pre          Prepend 1 or more filters (same syntax as -set)
--clr          Clear the option (remove all filters)
--remove       Delete filter if present
--toggle       Append a filter, or remove if if it already exists
+-set          Set a list of items (using ``,`` as separator)
+-append       Append single item
+-add          Append 1 or more items (same syntax as -set)
+-pre          Prepend 1 or more items (same syntax as -set)
+-clr          Clear the option (remove all items)
+-remove       Delete item if present
+-toggle       Append an item, or remove it if it already exists
 -help         Pseudo operation that prints a help text to the terminal
 ============= ===============================================
 
@@ -616,6 +670,8 @@ aliases for the proper option with ``-append`` action. For example,
 Options of this type can be changed at runtime using the ``change-list``
 command, which takes the suffix (without the ``-``) as separate operation
 parameter.
+
+An object settings list can hold up to 100 elements.
 
 CONFIGURATION FILES
 ===================
@@ -976,7 +1032,7 @@ There are three choices for using mpv from other programs or scripts:
        addition, terminal behavior itself may change any time. Compatibility
        cannot be guaranteed.
 
-       Your code should work even if you pass ``--no-terminal``. Do not attempt
+       Your code should work even if you pass ``--terminal=no``. Do not attempt
        to simulate user input by sending terminal control codes to mpv's stdin.
        If you need interactive control, using ``--input-ipc-server`` is
        recommended. This gives you access to the `JSON IPC`_  over unix domain
@@ -1100,7 +1156,7 @@ this with ``--untimed``, but it will likely break, unless the stream has no
 audio, and the input feeds data to the player at a constant rate.
 
 Another common problem is with MJPEG streams. These do not signal the correct
-framerate. Using ``--untimed`` or ``--no-correct-pts --container-fps-override=60``
+framerate. Using ``--untimed`` or ``--correct-pts=no --container-fps-override=60``
 might help.
 
 For livestreams, data can build up due to pausing the stream, due to slightly
@@ -1684,5 +1740,5 @@ FILES ON MACOS
 
 On macOS the watch later directory is located at ``~/.config/mpv/watch_later/``
 and the cache directory is set to ``~/Library/Caches/io.mpv/``. These directories
-can't be overwritten by enviroment variables.
+can't be overwritten by environment variables.
 Everything else is the same as `FILES`_.

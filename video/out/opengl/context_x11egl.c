@@ -18,7 +18,6 @@
 #include <assert.h>
 
 #include <X11/Xlib.h>
-#include <X11/extensions/Xpresent.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
@@ -216,6 +215,7 @@ static void mpegl_wait_events(struct ra_ctx *ctx, int64_t until_time_ns)
 const struct ra_ctx_fns ra_ctx_x11_egl = {
     .type           = "opengl",
     .name           = "x11egl",
+    .description    = "X11/EGL",
     .reconfig       = mpegl_reconfig,
     .control        = mpegl_control,
     .wakeup         = mpegl_wakeup,

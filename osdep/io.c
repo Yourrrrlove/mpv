@@ -27,11 +27,11 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <limits.h>
-#include <unistd.h>
 
 #include "mpv_talloc.h"
 
 #include "config.h"
+#include "common/common.h"
 #include "misc/random.h"
 #include "osdep/io.h"
 #include "osdep/terminal.h"
@@ -62,7 +62,7 @@ bool mp_set_cloexec(int fd)
     return true;
 }
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 int mp_make_cloexec_pipe(int pipes[2])
 {
     pipes[0] = pipes[1] = -1;
@@ -82,7 +82,7 @@ int mp_make_cloexec_pipe(int pipes[2])
 }
 #endif
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 int mp_make_wakeup_pipe(int pipes[2])
 {
     return mp_make_cloexec_pipe(pipes);
@@ -104,7 +104,7 @@ int mp_make_wakeup_pipe(int pipes[2])
 
 void mp_flush_wakeup_pipe(int pipe_end)
 {
-#ifndef __MINGW32__
+#ifndef _WIN32
     char buf[100];
     (void)read(pipe_end, buf, sizeof(buf));
 #endif
@@ -142,7 +142,7 @@ char *mp_to_utf8(void *talloc_ctx, const wchar_t *s)
 
 #endif // _WIN32
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 
 #include <io.h>
 #include <fcntl.h>
@@ -309,27 +309,37 @@ static inline HANDLE get_handle(FILE *stream)
     return wstream;
 }
 
-int mp_fputs(const char *str, FILE *stream)
+size_t mp_fwrite(const void *restrict buffer, size_t size, size_t count,
+                 FILE *restrict stream)
 {
+    if (!size || !count)
+        return 0;
+
     HANDLE wstream = get_handle(stream);
-    if (mp_check_console(wstream))
-        return mp_console_fputs(wstream, bstr0(str));
+    if (mp_check_console(wstream)) {
+        unsigned char *start = (unsigned char *)buffer;
+        size_t c = 0;
+        for (; c < count; ++c) {
+            if (mp_console_write(wstream, (bstr){start, size}) <= 0)
+                break;
+            start += size;
+        }
+        return c;
+    }
 
-    return fputs(str, stream);
-}
-
-int mp_puts(const char *str)
-{
-    return mp_fputs(str, stdout);
+#undef fwrite
+    return fwrite(buffer, size, count, stream);
 }
 
 #if HAVE_UWP
+PRINTF_ATTRIBUTE(2, 0)
 static int mp_vfprintf(FILE *stream, const char *format, va_list args)
 {
     return vfprintf(stream, format, args);
 }
 #else
 
+PRINTF_ATTRIBUTE(2, 0)
 static int mp_vfprintf(FILE *stream, const char *format, va_list args)
 {
     HANDLE wstream = get_handle(stream);
@@ -656,11 +666,12 @@ static void free_env(void)
 static void init_getenv(void)
 {
 #if !HAVE_UWP
-    wchar_t *wenv = GetEnvironmentStringsW();
-    if (!wenv)
+    wchar_t *wenv_begin = GetEnvironmentStringsW();
+    if (!wenv_begin)
         return;
     utf8_environ_ctx = talloc_new(NULL);
     int num_env = 0;
+    wchar_t *wenv = wenv_begin;
     while (1) {
         size_t len = wcslen(wenv);
         if (!len)
@@ -669,6 +680,7 @@ static void init_getenv(void)
         MP_TARRAY_APPEND(utf8_environ_ctx, utf8_environ, num_env, s);
         wenv += len + 1;
     }
+    FreeEnvironmentStringsW(wenv_begin);
     MP_TARRAY_APPEND(utf8_environ_ctx, utf8_environ, num_env, NULL);
     // Avoid showing up in leak detectors etc.
     atexit(free_env);

@@ -273,7 +273,7 @@ static bool mp_parse_escape(void *talloc_ctx, bstr *dst, bstr *code)
     if (code->start[0] == 'u' && code->len >= 5) {
         bstr num = bstr_splice(*code, 1, 5);
         uint32_t c = bstrtoll(num, &num, 16);
-        if (num.len)
+        if (num.len || c > 0x10FFFF)
             return false;
         if (c >= 0xd800 && c <= 0xdbff) {
             if (code->len < 5 + 6 // udddd + \udddd
@@ -399,7 +399,7 @@ char **mp_dup_str_array(void *tctx, char **s)
 //  mp_log2(32) == 5
 unsigned int mp_log2(uint32_t v)
 {
-#if defined(__GNUC__) && __GNUC__ >= 4
+#if (defined(__GNUC__) && __GNUC__ >= 4) || defined(__clang__)
     return v ? 31 - __builtin_clz(v) : 0;
 #else
     for (int x = 31; x >= 0; x--) {

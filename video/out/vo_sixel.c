@@ -35,10 +35,6 @@
 #include "video/sws_utils.h"
 #include "video/mp_image.h"
 
-#if HAVE_POSIX
-#include <unistd.h>
-#endif
-
 #define IMGFMT IMGFMT_RGB24
 
 #define TERM_ESC_USE_GLOBAL_COLOR_REG   "\033[?1070l"
@@ -520,6 +516,7 @@ static int preinit(struct vo *vo)
         sixel_strwrite(TERM_ESC_ALT_SCREEN);
 
     sixel_strwrite(TERM_ESC_HIDE_CURSOR);
+    terminal_set_mouse_input(true);
 
     /* don't use private color registers for each frame. */
     sixel_strwrite(TERM_ESC_USE_GLOBAL_COLOR_REG);
@@ -559,6 +556,7 @@ static void uninit(struct vo *vo)
     struct priv *priv = vo->priv;
 
     sixel_strwrite(TERM_ESC_RESTORE_CURSOR);
+    terminal_set_mouse_input(false);
 
     if (priv->opts.alt_screen)
         sixel_strwrite(TERM_ESC_NORMAL_SCREEN);
@@ -620,7 +618,6 @@ const struct vo_driver video_out_sixel = {
         {"config-clear", OPT_BOOL(opts.config_clear), },
         {"alt-screen", OPT_BOOL(opts.alt_screen), },
         {"buffered", OPT_BOOL(opts.buffered), },
-        {"exit-clear", OPT_REPLACED("vo-sixel-alt-screen")},
         {0}
     },
     .options_prefix = "vo-sixel",

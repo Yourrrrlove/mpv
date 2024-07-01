@@ -130,22 +130,9 @@ del             Cycles visibility between never / auto (mouse-move) / always
 Configuration
 -------------
 
-The OSC offers limited configuration through a config file
-``script-opts/osc.conf`` placed in mpv's user dir and through the
-``--script-opts`` command-line option. Options provided through the command-line
-will override those from the config file.
-
-Config Syntax
-~~~~~~~~~~~~~
-
-The config file must exactly follow the following syntax::
-
-    # this is a comment
-    optionA=value1
-    optionB=value2
-
-``#`` can only be used at the beginning of a line and there may be no
-spaces around the ``=`` or anywhere else.
+This script can be customized through a config file ``script-opts/osc.conf``
+placed in mpv's user directory and through the ``--script-opts`` command-line
+option. The configuration syntax is described in `mp.options functions`_.
 
 Command-line Syntax
 ~~~~~~~~~~~~~~~~~~~
@@ -260,16 +247,13 @@ Configurable Options
 
     Scale factor of the OSC when fullscreen
 
-``scaleforcedwindow``
-    Default: 2.0
-
-    Scale factor of the OSC when rendered on a forced (dummy) window
-
 ``vidscale``
-    Default: yes
+    Default: auto
 
-    Scale the OSC with the video
-    ``no`` tries to keep the OSC size constant as much as the window size allows
+    Scale the OSC with the video.
+    ``no`` tries to keep the OSC size constant as much as the window size allows.
+    ``auto`` scales the OSC with the OSD, which is scaled with the window or kept at a
+    constant size, depending on the ``--osd-scale-by-window`` option.
 
 ``valign``
     Default: 0.8
@@ -437,6 +421,71 @@ Configurable Options
     Use a Unicode minus sign instead of an ASCII hyphen when displaying
     the remaining playback time.
 
+``background_color``
+    Default: #000000
+
+    Sets the background color of the OSC.
+
+``timecode_color``
+    Default: #FFFFFF
+
+    Sets the color of the timecode and seekbar, of the OSC.
+
+``title_color``
+    Default: #FFFFFF
+
+    Sets the color of the video title. Formatted as #RRGGBB.
+
+``time_pos_color``
+    Default: #FFFFFF
+
+    Sets the color of the timecode at hover position in the seekbar.
+
+``time_pos_outline_color``
+    Default: #FFFFFF
+
+    Sets the color of the timecode's outline at hover position in the seekbar.
+    Also affects the timecode in the slimbox layout.
+
+``buttons_color``
+    Default: #FFFFFF
+
+    Sets the colors of the big buttons.
+
+``top_buttons_color``
+    Default: #FFFFFF
+
+    Sets the colors of the top buttons.
+
+``small_buttonsL_color``
+    Default: #FFFFFF
+
+    Sets the colors of the small buttons on the left in the box layout.
+
+``small_buttonsR_color``
+    Default: #FFFFFF
+
+    Sets the colors of the small buttons on the right in the box layout.
+
+``held_element_color``
+    Default: #999999
+
+    Sets the colors of the elements that are being pressed or held down.
+
+``tick_delay``
+    Default: 1/60
+
+    Sets the minimum interval between OSC redraws in seconds. This can be
+    decreased on fast systems to make OSC rendering smoother.
+
+    Ignored if ``tick_delay_follow_display_fps`` is set to yes and the VO
+    supports the ``display-fps`` property.
+
+``tick_delay_follow_display_fps``
+    Default: no
+
+    Use display fps to calculate the interval between OSC redraws.
+
 
 Script Commands
 ~~~~~~~~~~~~~~~
@@ -450,7 +499,10 @@ in ``input.conf``, or sent by other scripts.
 
 ``osc-visibility``
     Controls visibility mode ``never`` / ``auto`` (on mouse move) / ``always``
-    and also ``cycle`` to cycle between the modes
+    and also ``cycle`` to cycle between the modes.
+
+``osc-show``
+    Triggers the OSC to show up, just as if user moved mouse.
 
 Example
 

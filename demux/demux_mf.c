@@ -19,8 +19,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
-#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -69,7 +67,7 @@ static mf_t *open_mf_pattern(void *talloc_ctx, struct demuxer *d, char *filename
     if (filename[0] == '@') {
         struct stream *s = stream_create(filename + 1,
                             d->stream_origin | STREAM_READ, d->cancel, d->global);
-        if (s) {
+        if (s && !s->is_directory) {
             while (1) {
                 char buf[512];
                 int len = stream_read_peek(s, buf, sizeof(buf));
@@ -97,6 +95,7 @@ static mf_t *open_mf_pattern(void *talloc_ctx, struct demuxer *d, char *filename
 
             goto exit_mf;
         }
+        free_stream(s);
         mp_info(log, "%s is not indirect filelist\n", filename + 1);
     }
 

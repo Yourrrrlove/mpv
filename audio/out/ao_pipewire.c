@@ -20,6 +20,14 @@
  * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+// For FreeBSD where spa/param/audio/raw.h expects those to be defined
+#include "osdep/endian.h"
+#ifndef __BYTE_ORDER
+#define __BYTE_ORDER    BYTE_ORDER
+#define __LITTLE_ENDIAN LITTLE_ENDIAN
+#define __BIG_ENDIAN    BIG_ENDIAN
+#endif
+
 #include <pipewire/pipewire.h>
 #include <pipewire/global.h>
 #include <spa/param/audio/format-utils.h>
@@ -38,13 +46,22 @@
 
 #if !PW_CHECK_VERSION(0, 3, 50)
 static inline int pw_stream_get_time_n(struct pw_stream *stream, struct pw_time *time, size_t size) {
-	return pw_stream_get_time(stream, time);
+    return pw_stream_get_time(stream, time);
 }
 #endif
 
 #if !PW_CHECK_VERSION(0, 3, 57)
 // Earlier versions segfault on zeroed hooks
 #define spa_hook_remove(hook) if ((hook)->link.prev) spa_hook_remove(hook)
+#endif
+
+#if !PW_CHECK_VERSION(1, 0, 4)
+static uint64_t pw_stream_get_nsec(struct pw_stream *stream)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return SPA_TIMESPEC_TO_NSEC(&ts);
+}
 #endif
 
 enum init_state {
@@ -173,8 +190,7 @@ static void on_process(void *userdata)
 
     struct spa_buffer *buf = b->buffer;
 
-    int bytes_per_channel = buf->datas[0].maxsize / ao->channels.num;
-    int nframes = bytes_per_channel / ao->sstride;
+    int nframes = buf->datas[0].maxsize / ao->sstride;
 #if PW_CHECK_VERSION(0, 3, 49)
     if (b->requested != 0)
         nframes = MPMIN(b->requested, nframes);
@@ -190,11 +206,15 @@ static void on_process(void *userdata)
         time.rate.num = 1;
 
     int64_t end_time = mp_time_ns();
-    /* time.queued is always going to be 0, so we don't need to care */
-    end_time += (nframes * 1e9 / ao->samplerate) +
-                ((double) time.delay * SPA_NSEC_PER_SEC * time.rate.num / time.rate.denom);
+    end_time += MP_TIME_S_TO_NS(nframes) / ao->samplerate;
+    end_time += MP_TIME_S_TO_NS(time.delay) * time.rate.num / time.rate.denom;
+    end_time += MP_TIME_S_TO_NS(time.queued) / ao->samplerate;
+#if PW_CHECK_VERSION(0, 3, 50)
+    end_time += MP_TIME_S_TO_NS(time.buffered) / ao->samplerate;
+#endif
+    end_time -= pw_stream_get_nsec(p->stream) - time.now;
 
-    int samples = ao_read_data_nonblocking(ao, data, nframes, end_time);
+    int samples = ao_read_data(ao, data, nframes, end_time, NULL, false, false);
     b->size = samples;
 
     for (int i = 0; i < buf->n_datas; i++) {
@@ -227,7 +247,7 @@ static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *
     if (param == NULL || id != SPA_PARAM_Format)
         return;
 
-    int buffer_size = ao->device_buffer * af_fmt_to_bytes(ao->format) * ao->channels.num;
+    int buffer_size = ao->device_buffer * ao->sstride;
 
     params[0] = spa_pod_builder_add_object(&b,
                     SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
@@ -694,6 +714,15 @@ static void start(struct ao *ao)
     pw_thread_loop_unlock(p->loop);
 }
 
+static bool set_pause(struct ao *ao, bool paused)
+{
+    struct priv *p = ao->priv;
+    pw_thread_loop_lock(p->loop);
+    pw_stream_set_active(p->stream, !paused);
+    pw_thread_loop_unlock(p->loop);
+    return true;
+}
+
 #define CONTROL_RET(r) (!r ? CONTROL_OK : CONTROL_ERROR)
 
 static int control(struct ao *ao, enum aocontrol cmd, void *arg)
@@ -885,7 +914,7 @@ const struct ao_driver audio_out_pipewire = {
     .uninit      = uninit,
     .reset       = reset,
     .start       = start,
-
+    .set_pause   = set_pause,
     .control     = control,
 
     .hotplug_init   = hotplug_init,

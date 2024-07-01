@@ -20,7 +20,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <dirent.h>
 #include <inttypes.h>
 
 #include "osdep/io.h"
@@ -41,13 +40,6 @@
 #include "cue.h"
 
 #define PROBE_SIZE 512
-
-const struct m_sub_options demux_cue_conf = {
-        .opts = (const m_option_t[]) {
-            {"codepage", OPT_REPLACED("metadata-codepage")},
-            {0}
-        },
-};
 
 struct priv {
     struct cue_file *f;

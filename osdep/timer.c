@@ -17,8 +17,6 @@
 
 #include <stdlib.h>
 #include <time.h>
-#include <unistd.h>
-#include <sys/time.h>
 #include <limits.h>
 #include <assert.h>
 
@@ -46,7 +44,12 @@ void mp_time_init(void)
 
 int64_t mp_time_ns(void)
 {
-    return mp_raw_time_ns() - raw_time_offset;
+    return mp_time_ns_from_raw_time(mp_raw_time_ns());
+}
+
+int64_t mp_time_ns_from_raw_time(uint64_t raw_time)
+{
+    return raw_time - raw_time_offset;
 }
 
 double mp_time_sec(void)

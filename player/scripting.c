@@ -16,12 +16,9 @@
  */
 
 #include <string.h>
-#include <strings.h>
 #include <sys/types.h>
-#include <dirent.h>
 #include <math.h>
 #include <assert.h>
-#include <unistd.h>
 
 #include "config.h"
 
@@ -265,6 +262,7 @@ void mp_load_builtin_scripts(struct MPContext *mpctx)
     load_builtin_script(mpctx, 3, mpctx->opts->lua_load_console, "@console.lua");
     load_builtin_script(mpctx, 4, mpctx->opts->lua_load_auto_profiles,
                         "@auto_profiles.lua");
+    load_builtin_script(mpctx, 5, mpctx->opts->lua_load_select, "@select.lua");
 }
 
 bool mp_load_scripts(struct MPContext *mpctx)
@@ -295,7 +293,7 @@ bool mp_load_scripts(struct MPContext *mpctx)
 
 #if HAVE_CPLUGINS
 
-#if !HAVE_WIN32
+#ifndef _WIN32
 #include <dlfcn.h>
 #endif
 
@@ -395,7 +393,7 @@ error: ;
 
 const struct mp_scripting mp_scripting_cplugin = {
     .name = "cplugin",
-    #if HAVE_WIN32
+    #ifdef _WIN32
     .file_ext = "dll",
     #else
     .file_ext = "so",

@@ -20,3 +20,16 @@ jobs:
       - name: Lint
         run: |
           ./ci/lint-commit-msg.py
+
+  swift-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: norio-nomura/action-swiftlint@3.2.1
+
+  lua-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lunarmodules/luacheck@v1

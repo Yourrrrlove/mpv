@@ -51,9 +51,10 @@ static const struct flag cmd_flags[] = {
     {"osd-auto",            MP_ON_OSD_FLAGS, MP_ON_OSD_AUTO},
     {"expand-properties",   0,               MP_EXPAND_PROPERTIES},
     {"raw",                 MP_EXPAND_PROPERTIES, 0},
-    {"repeatable",          0,               MP_ALLOW_REPEAT},
+    {"repeatable",          MP_DISALLOW_REPEAT, MP_ALLOW_REPEAT},
+    {"nonrepeatable",       MP_ALLOW_REPEAT,    MP_DISALLOW_REPEAT},
     {"async",               MP_SYNC_CMD,     MP_ASYNC_CMD},
-    {"sync",                MP_ASYNC_CMD,     MP_SYNC_CMD},
+    {"sync",                MP_ASYNC_CMD,    MP_SYNC_CMD},
     {0}
 };
 
@@ -611,7 +612,8 @@ bool mp_input_is_repeatable_cmd(struct mp_cmd *cmd)
     if (cmd->def == &mp_cmd_list && cmd->args[0].v.p)
         cmd = cmd->args[0].v.p;  // list - only 1st cmd is considered
 
-    return (cmd->def->allow_auto_repeat) || (cmd->flags & MP_ALLOW_REPEAT);
+    return (cmd->def->allow_auto_repeat && !(cmd->flags & MP_DISALLOW_REPEAT)) ||
+           (cmd->flags & MP_ALLOW_REPEAT);
 }
 
 bool mp_input_is_scalable_cmd(struct mp_cmd *cmd)
@@ -635,37 +637,3 @@ void mp_print_cmd_list(struct mp_log *out)
         mp_info(out, "\n");
     }
 }
-
-static int parse_cycle_dir(struct mp_log *log, const struct m_option *opt,
-                           struct bstr name, struct bstr param, void *dst)
-{
-    double val;
-    if (bstrcmp0(param, "up") == 0) {
-        val = +1;
-    } else if (bstrcmp0(param, "down") == 0) {
-        val = -1;
-    } else {
-        return m_option_type_double.parse(log, opt, name, param, dst);
-    }
-    *(double *)dst = val;
-    return 1;
-}
-
-static char *print_cycle_dir(const m_option_t *opt, const void *val)
-{
-    return talloc_asprintf(NULL, "%f", *(double *)val);
-}
-
-static void copy_opt(const m_option_t *opt, void *dst, const void *src)
-{
-    if (dst && src)
-        memcpy(dst, src, opt->type->size);
-}
-
-const struct m_option_type m_option_type_cycle_dir = {
-    .name = "up|down",
-    .parse = parse_cycle_dir,
-    .print = print_cycle_dir,
-    .copy = copy_opt,
-    .size = sizeof(double),
-};

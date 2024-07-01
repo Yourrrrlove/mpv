@@ -17,11 +17,8 @@
 
 #include <assert.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
-#include <dirent.h>
 #include <math.h>
 
 #include <lua.h>
@@ -61,6 +58,9 @@ static const char * const builtin_lua_scripts[][2] = {
     {"mp.assdraw",
 #   include "player/lua/assdraw.lua.inc"
     },
+    {"mp.fzy",
+#   include "player/lua/fzy.lua.inc"
+    },
     {"mp.input",
 #   include "player/lua/input.lua.inc"
     },
@@ -81,6 +81,9 @@ static const char * const builtin_lua_scripts[][2] = {
     },
     {"@auto_profiles.lua",
 #   include "player/lua/auto_profiles.lua.inc"
+    },
+    {"@select.lua",
+#   include "player/lua/select.lua.inc"
     },
     {0}
 };
@@ -481,6 +484,8 @@ static int load_lua(struct mp_script_args *args)
     r = 0;
 
 error_out:
+    if (ctx->lua_allocf)
+        lua_setallocf(L, ctx->lua_allocf, ctx->lua_alloc_ud);
     if (ctx->state)
         lua_close(ctx->state);
     talloc_free(ctx);
@@ -512,7 +517,7 @@ static int script_log(lua_State *L)
         const char *s = lua_tostring(L, -1);
         if (s == NULL)
             return luaL_error(L, "Invalid argument");
-        mp_msg(ctx->log, msgl, "%s%s", s, i > 0 ? " " : "");
+        mp_msg(ctx->log, msgl, (i == 2 ? "%s" : " %s"), s);
         lua_pop(L, 1);  // args... tostring
     }
     mp_msg(ctx->log, msgl, "\n");

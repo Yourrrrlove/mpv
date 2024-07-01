@@ -16,6 +16,7 @@ struct sd;
 
 enum sd_ctrl {
     SD_CTRL_SUB_STEP,
+    SD_CTRL_SET_ANIMATED_CHECK,
     SD_CTRL_SET_VIDEO_PARAMS,
     SD_CTRL_SET_VIDEO_DEF_FPS,
     SD_CTRL_UPDATE_OPTS,
@@ -24,6 +25,7 @@ enum sd_ctrl {
 enum sd_text_type {
     SD_TEXT_TYPE_PLAIN,
     SD_TEXT_TYPE_ASS,
+    SD_TEXT_TYPE_ASS_FULL,
 };
 
 struct sd_times {
